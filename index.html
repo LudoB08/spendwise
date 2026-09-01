@@ -87,17 +87,6 @@ canvas{max-height:330px}.hidden{display:none}
 </div>
 </div>
 
-<div class="card">
-<h2>Savings goal</h2>
-<div class="grid2">
-<div><label>Year</label><input id="goalYear" type="number" min="2020" max="2100"></div>
-<div><label>Target to save (€)</label><input id="saveGoal" type="number" min="0" step="50" placeholder="5000"></div>
-</div>
-<div style="margin-top:12px" class="tiny muted"><span id="savedSoFar">€0.00</span> remaining before target</div>
-<div class="progress" style="margin-top:7px"><div class="bar" id="goalBar"></div></div>
-<div id="goalAdvice" class="tiny" style="margin-top:9px"></div>
-</div>
-
 <div class="card"><h2>Spending by category</h2><canvas id="catChart"></canvas></div>
 <div class="card"><h2>Monthly spending</h2><canvas id="monthChart"></canvas></div>
 
@@ -134,8 +123,8 @@ canvas{max-height:330px}.hidden{display:none}
 <div class="card">
 <div class="row"><div class="grow"><h2 style="margin-bottom:0">Payments</h2></div><button class="danger" onclick="clearAll()">Clear all</button></div>
 <div style="margin-top:12px" class="grid2">
-<div><label>Filter category</label><select id="filterCat" onchange="renderPayments()"></select></div>
-<div><label>Search</label><input id="search" oninput="renderPayments()" placeholder="Description"></div>
+<div><label>Filter category</label><select id="filterCat"></select></div>
+<div><label>Search</label><input id="search" placeholder="Description"></div>
 </div>
 <div id="paymentList" style="margin-top:10px"></div>
 </div>
@@ -168,8 +157,8 @@ canvas{max-height:330px}.hidden{display:none}
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-const KEY='spendwise.v2';
-const OLD_KEY='spendwise.v1';
+const KEY='spendwise.v3';
+const OLD_KEY='spendwise.v2';
 const defaultCats=['Oil / Fuel','Entertainment','Food & Groceries','Bills','Shopping','Transport','Health','Travel','Other'];
 let data=loadData(), catChart, monthChart, editingId=null;
 const money=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'EUR'}).format(Number(n)||0);
@@ -179,30 +168,40 @@ const isoToday=()=>new Date().toISOString().slice(0,10);
 function loadData(){
   try{
     const current=JSON.parse(localStorage.getItem(KEY)||'null');
-    if(current) return current;
+    if(current){
+      delete current.goalYear;
+      delete current.saveGoal;
+      return current;
+    }
     const old=JSON.parse(localStorage.getItem(OLD_KEY)||'null');
-    if(old){localStorage.setItem(KEY,JSON.stringify(old)); return old;}
+    if(old){
+      delete old.goalYear;
+      delete old.saveGoal;
+      localStorage.setItem(KEY,JSON.stringify(old));
+      return old;
+    }
   }catch(e){}
-  return {payments:[],categories:[...defaultCats],goalYear:new Date().getFullYear(),saveGoal:5000};
+  return {payments:[],categories:[...defaultCats]};
 }
 function persist(){localStorage.setItem(KEY,JSON.stringify(data))}
 function toast(t){const x=document.getElementById('toast');x.textContent=t;x.style.display='block';clearTimeout(window.__toast);window.__toast=setTimeout(()=>x.style.display='none',1800)}
 function escapeHtml(x){return String(x??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 function setup(){
-  document.getElementById('goalYear').value=data.goalYear;
-  document.getElementById('saveGoal').value=data.saveGoal;
   document.getElementById('date').value=isoToday();
   fillCategorySelects();
   renderAll();
 }
 function fillCategorySelects(){
-  const opts=data.categories.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+  const opts=data.categories.map(c=>{
+  const safe=escapeHtml(c);
+  return `<option value="${safe}">${safe}</option>`;
+}).join('');
   document.getElementById('category').innerHTML=opts;
   document.getElementById('filterCat').innerHTML='<option value="">All categories</option>'+opts;
   document.getElementById('editCategory').innerHTML=opts;
   document.getElementById('categoryList').innerHTML=data.categories.map(c=>`<div class="stat"><div class="lab">CATEGORY</div><div style="font-weight:850">${escapeHtml(c)}</div></div>`).join('');
 }
-function yearPayments(){return data.payments.filter(p=>p.date.startsWith(String(data.goalYear)))}
+function yearPayments(){const year=new Date().getFullYear();return data.payments.filter(p=>String(p.date).startsWith(String(year)))}
 function recentDays(n){const out=[];const end=new Date();end.setHours(23,59,59,999);for(let i=n-1;i>=0;i--){const d=new Date(end);d.setDate(end.getDate()-i);out.push(d.toISOString().slice(0,10));}return out}
 function paymentTotal(ps){return ps.reduce((a,p)=>a+Number(p.amount||0),0)}
 function byCategory(ps){const by={};ps.forEach(p=>by[p.category]=(by[p.category]||0)+Number(p.amount||0));return by}
@@ -213,14 +212,6 @@ function renderDashboard(){
   document.getElementById('total').textContent=money(total);
   document.getElementById('avg').textContent=money(avg);
   document.getElementById('top').textContent=sorted[0]?.[0]||'—';
-  const goal=Number(data.saveGoal)||0, remaining=Math.max(0,goal-total);
-  const progress=goal?Math.min(100,Math.max(0,(total/goal)*100)):0;
-  document.getElementById('savedSoFar').textContent=money(remaining);
-  document.getElementById('goalBar').style.width=progress+'%';
-  const monthsElapsed=(data.goalYear===new Date().getFullYear())?new Date().getMonth()+1:12;
-  const remainingMonths=Math.max(1,12-monthsElapsed);
-  const needed=remaining/remainingMonths;
-  document.getElementById('goalAdvice').textContent=goal?`To keep this target on track, aim to save about ${money(needed)} per remaining month.`:'Set a savings target to get a monthly plan.';
   drawCharts(by); renderInsights(ps,by,total); renderWeeklyAI();
 }
 function drawCharts(by){
@@ -288,7 +279,7 @@ function renderInsights(ps,by,total){
   el.innerHTML=arr.map(x=>`<div class="insight">${x}</div>`).join('');
 }
 function renderPayments(){
-  const fc=document.getElementById('filterCat').value,q=(document.getElementById('search').value||'').toLowerCase();
+  const fc=filterCatInput.value,q=(searchInput.value||'').toLowerCase();
   const ps=[...data.payments].sort((a,b)=>b.date.localeCompare(a.date)).filter(p=>(!fc||p.category===fc)&&(!q||String(p.description||'').toLowerCase().includes(q)));
   const el=document.getElementById('paymentList');
   if(!ps.length){el.innerHTML='<div class="muted" style="padding:18px 0">No payments match your filters.</div>';return}
@@ -302,29 +293,85 @@ function renderPayments(){
       </div>
     </div>`).join('')+'</div>';
 }
-document.getElementById('paymentForm').addEventListener('submit',e=>{
+const paymentForm=document.getElementById('paymentForm');
+const dateInput=document.getElementById('date');
+const amountInput=document.getElementById('amount');
+const categoryInput=document.getElementById('category');
+const descriptionInput=document.getElementById('description');
+const filterCatInput=document.getElementById('filterCat');
+const searchInput=document.getElementById('search');
+const editModalEl=document.getElementById('editModal');
+const editDateInput=document.getElementById('editDate');
+const editAmountInput=document.getElementById('editAmount');
+const editCategoryInput=document.getElementById('editCategory');
+const editDescriptionInput=document.getElementById('editDescription');
+const installBtnEl=document.getElementById('installBtn');
+
+paymentForm.addEventListener('submit',e=>{
   e.preventDefault();
-  data.payments.push({id:crypto.randomUUID(),date:date.value,amount:Number(amount.value),category:category.value,description:description.value.trim()});
-  persist();e.target.reset();date.value=isoToday();toast('Payment saved');showTab('dashboard');renderAll();
+  const newPayment={
+    id:crypto.randomUUID(),
+    date:dateInput.value,
+    amount:Number(amountInput.value),
+    category:categoryInput.value,
+    description:descriptionInput.value.trim()
+  };
+  if(!newPayment.date || !Number.isFinite(newPayment.amount) || newPayment.amount<=0){
+    toast('Enter a valid payment');
+    return;
+  }
+  data.payments.push(newPayment);
+  persist();
+  paymentForm.reset();
+  dateInput.value=isoToday();
+  toast('Payment saved');
+  showTab('dashboard');
+  renderAll();
 });
-goalYear.addEventListener('change',()=>{data.goalYear=Number(goalYear.value)||new Date().getFullYear();persist();renderAll()});
-saveGoal.addEventListener('change',()=>{data.saveGoal=Math.max(0,Number(saveGoal.value)||0);persist();renderAll()});
-function addCategory(){const c=newCat.value.trim();if(!c)return;if(!data.categories.includes(c)){data.categories.push(c);persist();fillCategorySelects();toast('Category added')}newCat.value=''}
+function addCategory(){
+  const newCatInput=document.getElementById('newCat');
+  const c=newCatInput.value.trim();
+  if(!c)return;
+  if(!data.categories.includes(c)){
+    data.categories.push(c);
+    persist();
+    fillCategorySelects();
+    toast('Category added');
+  }
+  newCatInput.value='';
+}
+filterCatInput.addEventListener('change',renderPayments);
+searchInput.addEventListener('input',renderPayments);
 function openEdit(id){
   const p=data.payments.find(x=>x.id===id);if(!p)return;
   editingId=id;
-  editDate.value=p.date;editAmount.value=p.amount;editCategory.value=p.category;editDescription.value=p.description||'';
-  editModal.classList.add('show');editModal.setAttribute('aria-hidden','false');setTimeout(()=>editAmount.focus(),0);
+  editDateInput.value=p.date;
+  editAmountInput.value=Number(p.amount).toFixed(2);
+  editCategoryInput.value=p.category;
+  editDescriptionInput.value=p.description||'';
+  editModalEl.classList.add('show');
+  editModalEl.setAttribute('aria-hidden','false');
+  setTimeout(()=>editAmountInput.focus(),0);
 }
-function closeEdit(){editModal.classList.remove('show');editModal.setAttribute('aria-hidden','true');editingId=null}
+function closeEdit(){
+  editModalEl.classList.remove('show');
+  editModalEl.setAttribute('aria-hidden','true');
+  editingId=null;
+}
 function saveEdit(){
   const p=data.payments.find(x=>x.id===editingId);if(!p)return;
-  const nextAmount=Number(editAmount.value);
-  if(!editDate.value||!Number.isFinite(nextAmount)||nextAmount<=0){toast('Enter a valid date and amount');return}
-  p.date=editDate.value;p.amount=nextAmount;p.category=editCategory.value;p.description=editDescription.value.trim();
+  const nextAmount=Number(editAmountInput.value);
+  if(!editDateInput.value || !Number.isFinite(nextAmount) || nextAmount<=0){
+    toast('Enter a valid date and amount');
+    return;
+  }
+  p.date=editDateInput.value;
+  p.amount=nextAmount;
+  p.category=editCategoryInput.value;
+  p.description=editDescriptionInput.value.trim();
   persist();closeEdit();renderAll();toast('Payment updated');
 }
-editModal.addEventListener('click',e=>{if(e.target===editModal)closeEdit()});
+editModalEl.addEventListener('click',e=>{if(e.target===editModalEl)closeEdit()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&editingId)closeEdit()});
 function removePayment(id){data.payments=data.payments.filter(p=>p.id!==id);persist();renderAll();toast('Payment removed')}
 function clearAll(){if(confirm('Delete every saved payment and start over?')){data.payments=[];persist();renderAll();toast('All payments cleared')}}
@@ -340,8 +387,8 @@ function showTab(tab){
   window.scrollTo({top:0,behavior:'smooth'});
 }
 let deferredPrompt;
-window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;installBtn.style.display='block'});
-installBtn.onclick=async()=>{if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;installBtn.style.display='none'}};
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;installBtnEl.style.display='block'});
+installBtnEl.onclick=async()=>{if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;installBtnEl.style.display='none'}};
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
 setup();
 </script>
